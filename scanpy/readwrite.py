@@ -99,6 +99,7 @@ def read(
     -------
     An :class:`~anndata.AnnData` object
     """
+
     filename = Path(filename)  # allow passing strings
     if is_valid_filename(filename):
         return _read(
@@ -293,6 +294,7 @@ def read_10x_mtx(
     -------
     An :class:`~anndata.AnnData` object
     """
+
     path = Path(path)
     genefile_exists = (path / 'genes.tsv').is_file()
     read = _read_legacy_10x_mtx if genefile_exists else _read_v3_10x_mtx
@@ -303,6 +305,7 @@ def read_10x_mtx(
         cache=cache,
         cache_compression=cache_compression,
     )
+
     if genefile_exists or not gex_only:
         return adata
     else:
@@ -320,12 +323,14 @@ def _read_legacy_10x_mtx(
     """
     Read mex from output from Cell Ranger v2 or earlier versions
     """
+
     path = Path(path)
     adata = read(
         path / 'matrix.mtx',
         cache=cache,
         cache_compression=cache_compression,
     ).T  # transpose the data
+
     genes = pd.read_csv(path / 'genes.tsv', header=None, sep='\t')
     if var_names == 'gene_symbols':
         var_names = genes[1]
@@ -352,6 +357,7 @@ def _read_v3_10x_mtx(
     """
     Read mex from output from Cell Ranger v3 or later versions
     """
+
     path = Path(path)
     adata = read(
         path / 'matrix.mtx.gz',
@@ -506,6 +512,7 @@ def _read(
     suppress_cache_warning=False,
     **kwargs,
 ):
+
     if ext is not None and ext not in avail_exts:
         raise ValueError(
             'Please provide one of the available extensions.\n'
@@ -798,3 +805,56 @@ Please, provide one of the available extensions.
 {avail_exts}
 Text files with .gz and .bz2 extensions are also supported.\
 ''')
+
+
+def read_splitbio_mtx(
+    path,
+    mtx_fname='DGE.mtx', 
+    gene_fname='genes.csv', 
+    cdata_fname='cell_metadata.csv', 
+    var_names='gene_symbols',
+    make_unique=True,
+    cache=False,
+    cache_compression=_empty,
+):
+    """
+    Read mex from output from Cell Ranger v2 or earlier versions
+    """
+    path = Path(path)
+    adata = read(
+        path / mtx_fname,
+        cache=cache,
+        cache_compression=cache_compression,
+    ) # NO transpose the data (unlike 10x)
+
+    # Gene file currently like this:
+    #  ==> genes.csv <==
+    #   ,gene_id,gene_name,genome
+    #  0,ENSG00000000419,DPM1,hg38
+    #  1,ENSG00000000457,SCYL3,hg38
+    #  2,ENSG00000000460,C1orf112,hg38
+    #  ...
+    genes = pd.read_csv(path / gene_fname, sep=',', header=0)
+    if var_names == 'gene_symbols':
+        var_names = genes['gene_name']
+        if make_unique:
+            var_names = anndata.utils.make_index_unique(pd.Index(var_names))
+        adata.var_names = var_names
+        adata.var['gene_ids'] = genes['gene_id'].values
+    elif var_names == 'gene_ids':
+        adata.var_names = genes['gene_id']
+        adata.var['gene_symbols'] = genes['gene_name'].values
+    else:
+        raise ValueError("`var_names` needs to be 'gene_symbols' or 'gene_ids'")
+
+    # Cell metadata currently like this:
+    # ==> cell_metadata.csv <==
+    #   ,cell_barcode,species,sample,rnd1_well,rnd2_well,rnd3_well,umi_count,umi_count_50dup,gene_count
+    #  0,AAACATCGAAACATCG_10,hg38,normal_lowbicarb_RTADP,10,1,1,158.0,597.3802418108409,139
+    #  1,AAACATCGAAACATCG_12,hg38,normal_lowbicarb_RTADP,12,1,1,195.0,737.2730832475567,172
+    #  2,AAACATCGAACGTGAT_26,hg38,ADP_lowbicarb,26,0,1,142.0,536.8860401084772,125
+    #  ...
+    adata.obs_names = pd.read_csv(path / cdata_fname, header=0)['cell_barcode']
+
+    return adata
+
